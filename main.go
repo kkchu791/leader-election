@@ -13,17 +13,28 @@ type Vote struct {
 	success bool
 }
 
-type Node struct {
-	name    string
+type Append struct {
 	kind    string
+	node    string
 	term    int
-	votes   int
-	voteFor string
-	ch      chan Vote
-	peers   map[string]Node
+	success bool
+}
+
+type Node struct {
+	name     string
+	kind     string
+	term     int
+	votes    int
+	voteFor  string
+	voteCh   chan Vote
+	appendCh chan Append
+	peers    map[string]Node
 }
 
 func process(n Node, ticker *time.Ticker) {
+	appendTicker := time.NewTicker(500 * time.Millisecond)
+	appendTicker.Stop()
+
 	for {
 		select {
 		case <-ticker.C:
@@ -43,17 +54,20 @@ func process(n Node, ticker *time.Ticker) {
 
 			//sending to all other nodes VoteReq
 			for _, peer := range n.peers {
-				peer.ch <- Vote{
+				peer.voteCh <- Vote{
 					kind: "request",
 					node: n.name,
 					term: n.term,
 				}
 			}
 
-		case vote := <-n.ch:
+		case vote := <-n.voteCh:
 			if vote.kind == "request" {
+
+				//resetting my state to give a vote
 				if vote.term > n.term {
 					n.voteFor = ""
+					n.kind = "follower"
 				}
 
 				if n.voteFor == "" && vote.term >= n.term {
@@ -65,7 +79,7 @@ func process(n Node, ticker *time.Ticker) {
 
 					// send voteResp back to candidate
 					voteNode := n.peers[vote.node]
-					voteNode.ch <- Vote{
+					voteNode.voteCh <- Vote{
 						kind:    "response",
 						node:    n.name,
 						term:    n.term,
@@ -75,7 +89,7 @@ func process(n Node, ticker *time.Ticker) {
 
 				if vote.term < n.term {
 					voteNode := n.peers[vote.node]
-					voteNode.ch <- Vote{
+					voteNode.voteCh <- Vote{
 						kind:    "response",
 						node:    n.name,
 						term:    n.term,
@@ -97,11 +111,16 @@ func process(n Node, ticker *time.Ticker) {
 							if n.kind == "candidate" {
 								fmt.Println(n.name, " becomes a leader")
 								n.kind = "leader"
+
+								//you can start the append ticker here
+								appendTicker.Reset(500 * time.Millisecond)
+
+								// stop vote ticker
+								ticker.Stop()
 							}
 						}
 					}
 				case false:
-
 					if vote.term > n.term {
 						n.kind = "follower"
 						n.term = vote.term
@@ -110,6 +129,17 @@ func process(n Node, ticker *time.Ticker) {
 
 				}
 			}
+		case <-appendTicker.C:
+			// we broadcast append req to the other nodes
+			for _, peer := range n.peers {
+				peer.appendCh <- Append{
+					kind: "request",
+					node: n.name,
+					term: n.term,
+				}
+			}
+		case <-n.appendCh:
+			fmt.Println("got an appendEntry at : ", n.name)
 		}
 	}
 
@@ -119,30 +149,33 @@ func main() {
 	var wg sync.WaitGroup
 
 	nodeA := Node{
-		name:    "A",
-		kind:    "follower",
-		term:    0,
-		voteFor: "",
-		ch:      make(chan Vote, 10),
-		peers:   make(map[string]Node, 0),
+		name:     "A",
+		kind:     "follower",
+		term:     0,
+		voteFor:  "",
+		voteCh:   make(chan Vote, 10),
+		appendCh: make(chan Append, 10),
+		peers:    make(map[string]Node, 0),
 	}
 
 	nodeB := Node{
-		name:    "B",
-		kind:    "follower",
-		term:    0,
-		voteFor: "",
-		ch:      make(chan Vote, 10),
-		peers:   make(map[string]Node, 0),
+		name:     "B",
+		kind:     "follower",
+		term:     0,
+		voteFor:  "",
+		voteCh:   make(chan Vote, 10),
+		appendCh: make(chan Append, 10),
+		peers:    make(map[string]Node, 0),
 	}
 
 	nodeC := Node{
-		name:    "C",
-		kind:    "follower",
-		term:    0,
-		voteFor: "",
-		ch:      make(chan Vote, 10),
-		peers:   make(map[string]Node, 0),
+		name:     "C",
+		kind:     "follower",
+		term:     0,
+		voteFor:  "",
+		voteCh:   make(chan Vote, 10),
+		appendCh: make(chan Append, 10),
+		peers:    make(map[string]Node, 0),
 	}
 
 	nodeA.peers[nodeB.name] = nodeB
