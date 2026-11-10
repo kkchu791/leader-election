@@ -19,15 +19,17 @@ type Node struct {
 	term    int
 	votes   int
 	voteFor string
+	ch      chan Vote
+	peers   map[string]Node
 }
 
-func process(n Node, in chan Vote, out chan Vote, ticker *time.Ticker) {
+func process(n Node, ticker *time.Ticker) {
 	for {
 		select {
 		case <-ticker.C:
 			fmt.Println("election timeout ", n.name)
-			// becomeing a candidate
-			n.kind = "Candidate"
+			// becoming a candidate
+			n.kind = "candidate"
 
 			// updates the term
 			n.term++
@@ -36,43 +38,62 @@ func process(n Node, in chan Vote, out chan Vote, ticker *time.Ticker) {
 			n.votes++
 
 			//sending to all other nodes VoteReq
-			out <- Vote{
-				kind: "request",
-				node: n.name,
-				term: n.term,
+			for _, peer := range n.peers {
+				peer.ch <- Vote{
+					kind: "request",
+					node: n.name,
+					term: n.term,
+				}
 			}
-		case vote := <-in:
 
+		case vote := <-n.ch:
 			if vote.kind == "request" {
 				//this is getting a requestVote and sending out a responseVote
-				if n.voteFor == "" && vote.term > n.term {
+				if vote.term > n.term {
+					n.voteFor = ""
+				}
+
+				if n.voteFor == "" && vote.term >= n.term {
+					// adopt the new term
+					n.term = vote.term
 
 					// update the node voteFor so it can't vote again during this term
 					n.voteFor = vote.node
 
-					// update this nodes term
-					n.term = vote.term
-
-					// send voteResp
-					out <- Vote{
+					// send voteResp back to candidate
+					voteNode := n.peers[vote.node]
+					voteNode.ch <- Vote{
 						kind:    "response",
 						node:    n.name,
 						term:    n.term,
 						success: true,
 					}
 				}
+
+				if vote.term < n.term {
+
+					//downgrade this node in case its current a follower or leader
+					n.kind = "follower"
+
+					voteNode := n.peers[vote.node]
+					voteNode.ch <- Vote{
+						kind:    "response",
+						node:    n.name,
+						term:    n.term,
+						success: false,
+					}
+				}
 			}
 
 			if vote.kind == "response" {
-				fmt.Println("do we ever get voteResp?")
 				// majority check : votes > len(peers)/2
 				if vote.success == true {
 					n.votes++
 				}
 
-				if n.votes > 1 {
+				if n.votes > len(n.peers)/2 {
 					fmt.Println(n.name, " becomes a leader")
-					n.kind = "Leader"
+					n.kind = "leader"
 				}
 			}
 		}
@@ -81,20 +102,55 @@ func process(n Node, in chan Vote, out chan Vote, ticker *time.Ticker) {
 }
 
 func main() {
-
-	aCh := make(chan Vote)
-	bCh := make(chan Vote)
-
 	var wg sync.WaitGroup
+
+	nodeA := Node{
+		name:    "A",
+		kind:    "follower",
+		term:    0,
+		voteFor: "",
+		ch:      make(chan Vote),
+		peers:   make(map[string]Node, 0),
+	}
+
+	nodeB := Node{
+		name:    "B",
+		kind:    "follower",
+		term:    0,
+		voteFor: "",
+		ch:      make(chan Vote),
+		peers:   make(map[string]Node, 0),
+	}
+
+	nodeC := Node{
+		name:    "C",
+		kind:    "follower",
+		term:    0,
+		voteFor: "",
+		ch:      make(chan Vote),
+		peers:   make(map[string]Node, 0),
+	}
+
+	nodeA.peers[nodeB.name] = nodeB
+	nodeA.peers[nodeC.name] = nodeC
+	nodeB.peers[nodeA.name] = nodeA
+	nodeB.peers[nodeC.name] = nodeC
+	nodeC.peers[nodeA.name] = nodeA
+	nodeC.peers[nodeB.name] = nodeB
+
 	wg.Go(func() {
 		tickerA := time.NewTicker(1600 * time.Millisecond)
-		node := Node{name: "A", kind: "Follower", term: 0, voteFor: ""}
-		process(node, aCh, bCh, tickerA)
+		process(nodeA, tickerA)
 	})
+
 	wg.Go(func() {
 		tickerB := time.NewTicker(3000 * time.Millisecond)
-		node := Node{name: "B", kind: "Follower", term: 0, voteFor: ""}
-		process(node, bCh, aCh, tickerB)
+		process(nodeB, tickerB)
+	})
+
+	wg.Go(func() {
+		tickerC := time.NewTicker(5100 * time.Millisecond)
+		process(nodeC, tickerC)
 	})
 
 	wg.Wait()
