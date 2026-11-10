@@ -74,10 +74,6 @@ func process(n Node, ticker *time.Ticker) {
 				}
 
 				if vote.term < n.term {
-
-					//downgrade this node in case its current a follower or leader
-					n.kind = "follower"
-
 					voteNode := n.peers[vote.node]
 					voteNode.ch <- Vote{
 						kind:    "response",
@@ -89,16 +85,29 @@ func process(n Node, ticker *time.Ticker) {
 			}
 
 			if vote.kind == "response" {
-				// majority check : votes > len(peers)/2
-				if vote.success == true {
-					n.votes++
-				}
+				switch vote.success {
+				case true:
+					// you only want to count votes that are in the same term as your candidate
+					// counting old term responses could lead to multiple leaders
+					if vote.term == n.term {
+						n.votes++
 
-				if n.votes > len(n.peers)/2 {
-					if n.kind == "candidate" {
-						fmt.Println(n.name, " becomes a leader")
-						n.kind = "leader"
+						// majority check : votes > len(peers)/2
+						if n.votes > len(n.peers)/2 {
+							if n.kind == "candidate" {
+								fmt.Println(n.name, " becomes a leader")
+								n.kind = "leader"
+							}
+						}
 					}
+				case false:
+
+					if vote.term > n.term {
+						n.kind = "follower"
+						n.term = vote.term
+						n.voteFor = ""
+					}
+
 				}
 			}
 		}
