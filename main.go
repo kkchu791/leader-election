@@ -31,10 +31,14 @@ func process(n Node, ticker *time.Ticker) {
 			// becoming a candidate
 			n.kind = "candidate"
 
+			//resets its vote count for new election
+			n.votes = 0
+
 			// updates the term
 			n.term++
 
 			// votes for itself
+			n.voteFor = n.name
 			n.votes++
 
 			//sending to all other nodes VoteReq
@@ -48,7 +52,6 @@ func process(n Node, ticker *time.Ticker) {
 
 		case vote := <-n.ch:
 			if vote.kind == "request" {
-				//this is getting a requestVote and sending out a responseVote
 				if vote.term > n.term {
 					n.voteFor = ""
 				}
