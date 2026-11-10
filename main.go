@@ -92,8 +92,10 @@ func process(n Node, ticker *time.Ticker) {
 				}
 
 				if n.votes > len(n.peers)/2 {
-					fmt.Println(n.name, " becomes a leader")
-					n.kind = "leader"
+					if n.kind == "candidate" {
+						fmt.Println(n.name, " becomes a leader")
+						n.kind = "leader"
+					}
 				}
 			}
 		}
@@ -109,7 +111,7 @@ func main() {
 		kind:    "follower",
 		term:    0,
 		voteFor: "",
-		ch:      make(chan Vote),
+		ch:      make(chan Vote, 10),
 		peers:   make(map[string]Node, 0),
 	}
 
@@ -118,7 +120,7 @@ func main() {
 		kind:    "follower",
 		term:    0,
 		voteFor: "",
-		ch:      make(chan Vote),
+		ch:      make(chan Vote, 10),
 		peers:   make(map[string]Node, 0),
 	}
 
@@ -127,7 +129,7 @@ func main() {
 		kind:    "follower",
 		term:    0,
 		voteFor: "",
-		ch:      make(chan Vote),
+		ch:      make(chan Vote, 10),
 		peers:   make(map[string]Node, 0),
 	}
 
