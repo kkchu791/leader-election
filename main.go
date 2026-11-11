@@ -31,13 +31,13 @@ type Node struct {
 	peers    map[string]Node
 }
 
-func process(n Node, ticker *time.Ticker) {
-	appendTicker := time.NewTicker(500 * time.Millisecond)
+func process(n Node, electionTicker *time.Ticker) {
+	appendTicker := time.NewTicker(1000 * time.Millisecond)
 	appendTicker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-electionTicker.C:
 			fmt.Println("election timeout ", n.name)
 			// becoming a candidate
 			n.kind = "candidate"
@@ -113,10 +113,10 @@ func process(n Node, ticker *time.Ticker) {
 								n.kind = "leader"
 
 								//you can start the append ticker here
-								appendTicker.Reset(500 * time.Millisecond)
+								appendTicker.Reset(1000 * time.Millisecond)
 
-								// stop vote ticker
-								ticker.Stop()
+								// stop election ticker
+								electionTicker.Stop()
 							}
 						}
 					}
@@ -138,8 +138,56 @@ func process(n Node, ticker *time.Ticker) {
 					term: n.term,
 				}
 			}
-		case <-n.appendCh:
-			fmt.Println("got an appendEntry at : ", n.name)
+		case ap := <-n.appendCh:
+			if ap.kind == "request" {
+				// if term is larger, adopt the term
+				leader := n.peers[ap.node]
+				if ap.term >= n.term {
+
+					// steps down if a candidate
+					n.kind = "follower"
+
+					// resets the election ticker everytime we get a valid append request
+					electionTicker.Reset(3000 * time.Millisecond)
+
+					n.term = ap.term
+
+					// send appendResp back to leader
+					leader.appendCh <- Append{
+						kind:    "response",
+						node:    n.name,
+						term:    n.term,
+						success: true,
+					}
+				}
+
+				//if term is smaller, send back a success false
+				if ap.term < n.term {
+					leader.appendCh <- Append{
+						kind:    "response",
+						node:    n.name,
+						term:    n.term,
+						success: false,
+					}
+				}
+
+			}
+
+			if ap.kind == "response" {
+
+				if ap.success {
+					fmt.Println("append resp from: ", ap.node)
+				}
+				if !ap.success {
+					// downgrade node to follower
+					// also reset its election ticker
+					fmt.Println("downgrading leader to follower: ", n.name)
+					n.kind = "follower"
+
+					electionTicker.Reset(1600 * time.Millisecond)
+				}
+			}
+
 		}
 	}
 
