@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 )
@@ -31,9 +32,14 @@ type Node struct {
 	peers    map[string]Node
 }
 
-func process(n Node, electionTicker *time.Ticker) {
+func process(n Node) {
 	appendTicker := time.NewTicker(1000 * time.Millisecond)
 	appendTicker.Stop()
+
+	max := 5000
+	min := 1500
+	randomNum := rand.IntN(max-min) + min
+	electionTicker := time.NewTicker(time.Duration(randomNum) * time.Millisecond)
 
 	for {
 		select {
@@ -63,6 +69,9 @@ func process(n Node, electionTicker *time.Ticker) {
 
 		case vote := <-n.voteCh:
 			if vote.kind == "request" {
+
+				// reset the election time out when you recieve vote request
+				electionTicker.Reset(time.Duration(randomNum) * time.Millisecond)
 
 				//resetting my state to give a vote
 				if vote.term > n.term {
@@ -147,8 +156,8 @@ func process(n Node, electionTicker *time.Ticker) {
 					// steps down if a candidate
 					n.kind = "follower"
 
-					// resets the election ticker everytime we get a valid append request
-					electionTicker.Reset(3000 * time.Millisecond)
+					// reset the election time out when you recieve valid append request
+					electionTicker.Reset(time.Duration(randomNum) * time.Millisecond)
 
 					n.term = ap.term
 
@@ -234,18 +243,15 @@ func main() {
 	nodeC.peers[nodeB.name] = nodeB
 
 	wg.Go(func() {
-		tickerA := time.NewTicker(1600 * time.Millisecond)
-		process(nodeA, tickerA)
+		process(nodeA)
 	})
 
 	wg.Go(func() {
-		tickerB := time.NewTicker(3000 * time.Millisecond)
-		process(nodeB, tickerB)
+		process(nodeB)
 	})
 
 	wg.Go(func() {
-		tickerC := time.NewTicker(5100 * time.Millisecond)
-		process(nodeC, tickerC)
+		process(nodeC)
 	})
 
 	wg.Wait()
