@@ -36,11 +36,15 @@ func process(n Node) {
 	appendTicker := time.NewTicker(1000 * time.Millisecond)
 	appendTicker.Stop()
 
+	//initializing the election timeout with random number
 	max := 5000
 	min := 1500
 	randomNum := rand.IntN(max-min) + min
 	electionTicker := time.NewTicker(time.Duration(randomNum) * time.Millisecond)
 
+	successCount := 0
+
+loop:
 	for {
 		select {
 		case <-electionTicker.C:
@@ -58,6 +62,10 @@ func process(n Node) {
 			n.voteFor = n.name
 			n.votes++
 
+			// resets its election timeout
+			randomNum = rand.IntN(max-min) + min
+			electionTicker.Reset(time.Duration(randomNum) * time.Millisecond)
+
 			//sending to all other nodes VoteReq
 			for _, peer := range n.peers {
 				peer.voteCh <- Vote{
@@ -71,6 +79,7 @@ func process(n Node) {
 			if vote.kind == "request" {
 
 				// reset the election time out when you recieve vote request
+				randomNum = rand.IntN(max-min) + min
 				electionTicker.Reset(time.Duration(randomNum) * time.Millisecond)
 
 				//resetting my state to give a vote
@@ -157,6 +166,7 @@ func process(n Node) {
 					n.kind = "follower"
 
 					// reset the election time out when you recieve valid append request
+					randomNum = rand.IntN(max-min) + min
 					electionTicker.Reset(time.Duration(randomNum) * time.Millisecond)
 
 					n.term = ap.term
@@ -183,9 +193,11 @@ func process(n Node) {
 			}
 
 			if ap.kind == "response" {
-
 				if ap.success {
 					fmt.Println("append resp from: ", ap.node)
+					successCount++
+
+					fmt.Println("success count: ", successCount)
 				}
 				if !ap.success {
 					// downgrade node to follower
@@ -193,8 +205,14 @@ func process(n Node) {
 					fmt.Println("downgrading leader to follower: ", n.name)
 					n.kind = "follower"
 
-					electionTicker.Reset(1600 * time.Millisecond)
+					randomNum = rand.IntN(max-min) + min
+					electionTicker.Reset(time.Duration(randomNum) * time.Millisecond)
 				}
+			}
+
+			// simulate killing the leader
+			if successCount == 10 {
+				break loop
 			}
 
 		}
@@ -235,12 +253,50 @@ func main() {
 		peers:    make(map[string]Node, 0),
 	}
 
+	nodeD := Node{
+		name:     "D",
+		kind:     "follower",
+		term:     0,
+		voteFor:  "",
+		voteCh:   make(chan Vote, 10),
+		appendCh: make(chan Append, 10),
+		peers:    make(map[string]Node, 0),
+	}
+
+	nodeE := Node{
+		name:     "E",
+		kind:     "follower",
+		term:     0,
+		voteFor:  "",
+		voteCh:   make(chan Vote, 10),
+		appendCh: make(chan Append, 10),
+		peers:    make(map[string]Node, 0),
+	}
+
 	nodeA.peers[nodeB.name] = nodeB
 	nodeA.peers[nodeC.name] = nodeC
+	nodeA.peers[nodeD.name] = nodeD
+	nodeA.peers[nodeE.name] = nodeE
+
 	nodeB.peers[nodeA.name] = nodeA
 	nodeB.peers[nodeC.name] = nodeC
+	nodeB.peers[nodeD.name] = nodeD
+	nodeB.peers[nodeE.name] = nodeE
+
 	nodeC.peers[nodeA.name] = nodeA
 	nodeC.peers[nodeB.name] = nodeB
+	nodeC.peers[nodeD.name] = nodeD
+	nodeC.peers[nodeE.name] = nodeE
+
+	nodeD.peers[nodeA.name] = nodeA
+	nodeD.peers[nodeB.name] = nodeB
+	nodeD.peers[nodeC.name] = nodeC
+	nodeD.peers[nodeE.name] = nodeE
+
+	nodeE.peers[nodeA.name] = nodeA
+	nodeE.peers[nodeB.name] = nodeB
+	nodeE.peers[nodeC.name] = nodeC
+	nodeE.peers[nodeD.name] = nodeD
 
 	wg.Go(func() {
 		process(nodeA)
@@ -252,6 +308,14 @@ func main() {
 
 	wg.Go(func() {
 		process(nodeC)
+	})
+
+	wg.Go(func() {
+		process(nodeD)
+	})
+
+	wg.Go(func() {
+		process(nodeE)
 	})
 
 	wg.Wait()
